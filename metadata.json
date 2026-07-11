@@ -1,0 +1,6 @@
+{
+  "name": "AI Music Generator",
+  "description": "Generate music with customizable genres, tempo, and mood, featuring an interactive multi-track timeline, scrolling lyrics, and high-quality WAV/MP3 exports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
