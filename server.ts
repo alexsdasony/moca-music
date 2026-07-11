@@ -118,7 +118,29 @@ You MUST output a valid JSON object matching the following TypeScript interface 
         const lyriaModel = clipDuration <= 30 ? "lyria-3-clip-preview" : "lyria-3-pro-preview";
         console.log(`Attempting music generation with Lyria model: ${lyriaModel}`);
         
-        const lyriaPrompt = `Generate a high-quality ${clipDuration}-second ${mood || "ambient"} ${genre || "instrumental"} track with a tempo of ${tempo || 120} BPM. Description: ${prompt || "synth groove"}`;
+        let vocalPrompt = "";
+        let finalGenre = genre || "music";
+        
+        if (lyricsMode !== "none") {
+          const rawLyrics = customLyrics || (songDetails && songDetails.lyrics) || "";
+          // Strip timestamps for the prompt to keep it clean
+          const lyricsText = rawLyrics.replace(/\[\d{2}:\d{2}\]/g, "").replace(/\n+/g, " ").trim();
+          const shortLyrics = lyricsText.substring(0, 250);
+          
+          vocalPrompt = `This track MUST feature a clear, prominent, expressive sung vocal track singing these lyrics: "${shortLyrics}". Avoid just instrumental; make sure the singer's voice is highly audible and fits the ${mood || "expressive"} vibe.`;
+          
+          if (finalGenre.toLowerCase().includes("instrumental")) {
+            finalGenre = "vocal song";
+          } else {
+            finalGenre = `${finalGenre} song with vocals`;
+          }
+        } else {
+          vocalPrompt = "This is an instrumental track with no singing or vocal melodies.";
+        }
+
+        const lyriaPrompt = `Generate a high-quality ${clipDuration}-second ${mood || "ambient"} ${finalGenre} track with a tempo of ${tempo || 120} BPM.
+Description: ${prompt || "synth groove"}.
+Vocal instruction: ${vocalPrompt}`;
         
         const streamResponse = await ai.models.generateContentStream({
           model: lyriaModel,

@@ -27,6 +27,8 @@ class AudioEngine {
   // Callbacks
   private onTimeUpdateCallback: ((time: number) => void) | null = null;
   private timeUpdateTimer: any = null;
+  private lastSpokenLyricIndex: number = -1;
+  private masterVolume: number = 0.8;
 
   constructor() {}
 
@@ -94,6 +96,19 @@ class AudioEngine {
       this.runScheduler();
     }
 
+    // Reset or initialize last spoken lyric index based on startOffset
+    let initialIndex = -1;
+    if (project.lyrics) {
+      for (let i = 0; i < project.lyrics.length; i++) {
+        if (startOffset >= project.lyrics[i].time) {
+          initialIndex = i;
+        } else {
+          break;
+        }
+      }
+    }
+    this.lastSpokenLyricIndex = initialIndex;
+
     // Timer for UI timeline updates
     this.timeUpdateTimer = setInterval(() => {
       if (!this.isPlaying) return;
@@ -104,8 +119,86 @@ class AudioEngine {
       if (elapsed >= maxLen) {
         this.stop();
         if (this.onTimeUpdateCallback) this.onTimeUpdateCallback(0);
+        return;
       } else {
         if (this.onTimeUpdateCallback) this.onTimeUpdateCallback(elapsed);
+      }
+
+      // Synchronize speech synthesis vocals in real-time
+      if (project.lyrics && project.lyrics.length > 0) {
+        let activeIndex = -1;
+        for (let i = 0; i < project.lyrics.length; i++) {
+          if (elapsed >= project.lyrics[i].time) {
+            activeIndex = i;
+          } else {
+            break;
+          }
+        }
+
+        if (activeIndex !== this.lastSpokenLyricIndex && activeIndex !== -1) {
+          this.lastSpokenLyricIndex = activeIndex;
+
+          const vocalsTrack = project.tracks.find((t) => t.id === "vocals");
+          const isMuted = vocalsTrack?.isMuted || false;
+          const volume = vocalsTrack ? vocalsTrack.volume : 0.8;
+          const isAnySoloed = project.tracks.some((t) => t.isSolo);
+          const isVocalSolo = vocalsTrack?.isSolo || false;
+          
+          const isAudible = !isMuted && (!isAnySoloed || isVocalSolo);
+
+          if (isAudible && window.speechSynthesis) {
+            window.speechSynthesis.cancel(); // Clear any queued speech instantly
+
+            const text = project.lyrics[activeIndex].text;
+            // Skip stage cues like (Intro), (Chorus), etc. unless it's actual lyrics
+            if (text && !text.startsWith("(") && !text.endsWith(")")) {
+              const utterance = new SpeechSynthesisUtterance(text);
+              
+              // Set volume based on tracks mixer and master settings
+              utterance.volume = volume * this.masterVolume;
+              
+              // Set speed/rate and pitch to sound melodic/singy
+              utterance.rate = 0.85; // Slower rate simulates sustained singing vowel length
+              
+              const genreLower = (project.genre || "").toLowerCase();
+              const moodLower = (project.mood || "").toLowerCase();
+              
+              if (genreLower.includes("synthwave") || genreLower.includes("cyberpunk") || genreLower.includes("techno") || genreLower.includes("metal")) {
+                utterance.pitch = 1.35; // Bright robotic singing synthesizer pitch
+                utterance.rate = 1.0;
+              } else if (genreLower.includes("ambient") || moodLower.includes("sad") || moodLower.includes("chill")) {
+                utterance.pitch = 0.9; // Soft warm low vocal singing register
+                utterance.rate = 0.75;
+              } else {
+                utterance.pitch = 1.15; // Standard singing pitch
+              }
+
+              // Detect Portuguese characters or Portuguese prepositions to select native PT voice
+              const isPortuguese = /[ãáâàéêíóôõúç]/i.test(text) || /\b(de|o|a|que|e|do|da|com|um|uma|não)\b/i.test(text);
+              
+              if (window.speechSynthesis.getVoices) {
+                const voices = window.speechSynthesis.getVoices();
+                let selectedVoice = null;
+                
+                if (isPortuguese) {
+                  // Prioritize Portuguese voices (pt-BR or pt-PT)
+                  selectedVoice = voices.find(v => v.lang.startsWith("pt")) || voices.find(v => v.lang.startsWith("es"));
+                }
+                
+                if (!selectedVoice) {
+                  // Try standard melodic female or male voice
+                  selectedVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Zira") || v.name.includes("Samantha") || v.name.includes("Google") || v.lang.startsWith("en"));
+                }
+
+                if (selectedVoice) {
+                  utterance.voice = selectedVoice;
+                }
+              }
+
+              window.speechSynthesis.speak(utterance);
+            }
+          }
+        }
       }
     }, 50);
   }
@@ -514,6 +607,7 @@ class AudioEngine {
   }
 
   public updateMasterVolume(volume: number) {
+    this.masterVolume = volume;
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setTargetAtTime(volume, this.ctx.currentTime, 0.05);
     }
@@ -521,6 +615,10 @@ class AudioEngine {
 
   public stop() {
     this.isPlaying = false;
+    
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
     
     if (this.schedulerTimer) {
       clearTimeout(this.schedulerTimer);
